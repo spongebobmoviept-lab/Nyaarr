@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nyaarr</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">N</span>
+      </div>
+      <div class="brand-name">Nyaarr</div>
+      <nav class="nav">
+        <button class="tab active" data-tab="series">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          <span>Series</span>
+        </button>
+        <button class="tab" data-tab="movies">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+          <span>Movies</span>
+        </button>
+        <button class="tab" data-tab="history">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          <span>History</span>
+        </button>
+        <button class="tab" data-tab="settings">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <span>Settings</span>
+        </button>
+        <button class="tab" data-tab="log">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          <span>Log</span>
+        </button>
+      </nav>
+    </aside>
+
+    <main>
+    <div class="status-banner" id="status-banner"></div>
+
+    <section id="tab-series" class="tab-panel active">
+      <h3>Anime Series</h3>
+      <p class="muted">Detected from Sonarr via seriesType or your configured anime tag. Click a series to see its missing episodes and grab candidates.</p>
+      <div class="toolbar">
+        <button id="run-scan-now" class="btn-gold">Run Scan Now</button>
+        <span id="scan-status" class="muted"></span>
+      </div>
+      <div id="series-list" class="series-list"></div>
+      <div id="episode-panel" style="display:none; margin-top: 1.5rem;">
+        <h3 id="episode-panel-title">Episodes</h3>
+        <div class="toolbar">
+          <label class="muted" for="series-pref-select">Sub/dub preference for this show:</label>
+          <select id="series-pref-select">
+            <option value="default">Use global default</option>
+            <option value="prefer_sub">Prefer sub</option>
+            <option value="prefer_dub">Prefer dub</option>
+            <option value="no_preference">No preference</option>
+          </select>
+          <button id="find-movies-btn" class="btn-trigger">Find Related Movies</button>
+        </div>
+        <div id="movie-candidates-panel"></div>
+        <table class="episode-table">
+          <thead><tr><th>Ep</th><th>Title</th><th>Air Date</th><th>Status</th></tr></thead>
+          <tbody id="episode-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tab-movies" class="tab-panel">
+      <h3>Related Movies</h3>
+      <p class="muted">Movies discovered and added through a series' "Find Related Movies" action. Nyaarr only ever manages movies it added this way.</p>
+      <div id="movies-list" class="queue-list"></div>
+    </section>
+
+    <section id="tab-history" class="tab-panel">
+      <h3>Decision History</h3>
+      <div id="history-list" class="queue-list"></div>
+    </section>
+
+    <section id="tab-settings" class="tab-panel">
+      <h3>Connections</h3>
+      <p class="muted">Secret fields show only the last 4 characters of what's currently saved — leave one blank to keep it unchanged.</p>
+      <form id="connections-form" class="settings-form"></form>
+      <button id="connections-save" class="btn-gold">Save Connections</button>
+      <span id="connections-status" class="muted"></span>
+
+      <h3>Tuning</h3>
+      <form id="settings-form" class="settings-form"></form>
+      <button id="settings-save" class="btn-gold">Save Settings</button>
+      <span id="settings-status" class="muted"></span>
+    </section>
+
+    <section id="tab-log" class="tab-panel">
+      <pre id="log-view" class="log-view"></pre>
+    </section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
