@@ -141,3 +141,7 @@ Sonarr's own `seriesType` field is the primary signal; a configurable tag name i
 - `.env` is now `.env.example` (copy it to `.env`); `.env` is git-ignored. Docker base image pinned to a specific Python patch release.
 
 **1.0.0**: first public release.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
