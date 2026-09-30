@@ -46,7 +46,11 @@ class RadarrMovie:
 def _poster_from_raw(raw: dict) -> Optional[str]:
     for image in raw.get("images", []):
         if image.get("coverType") == "poster":
-            return image.get("remoteUrl") or image.get("url")
+            # Only absolute http(s) URLs are usable in a Discord embed; the
+            # relative /MediaCover path would make the whole webhook post fail.
+            for candidate in (image.get("remoteUrl"), image.get("url")):
+                if isinstance(candidate, str) and candidate.startswith(("http://", "https://")):
+                    return candidate
     return None
 
 
@@ -167,10 +171,29 @@ async def grab_release(guid: str, indexer_id: int) -> None:
 
 @with_retry(label="Radarr: get queue")
 async def get_queue() -> list[dict[str, Any]]:
+    """Paginates through Radarr's ENTIRE queue rather than assuming it fits
+    in one page — same fix as sonarr.py's get_queue(), applied here too
+    since dedupe_movie_queue() relies on this the same way
+    dedupe_episode_queue() relies on the Sonarr side, and would silently
+    develop the identical blind spot once Radarr's queue grows past 200
+    records. See sonarr.py's get_queue() for the failure mode this
+    prevents.
+    """
+    records: list[dict[str, Any]] = []
+    page = 1
+    page_size = 250
     async with _client() as client:
-        resp = await client.get("/queue", params={"pageSize": 200})
-        resp.raise_for_status()
-        return resp.json().get("records", [])
+        while True:
+            resp = await client.get("/queue", params={"page": page, "pageSize": page_size})
+            resp.raise_for_status()
+            data = resp.json()
+            batch = data.get("records", [])
+            records.extend(batch)
+            total = data.get("totalRecords", len(records))
+            if len(records) >= total or not batch:
+                break
+            page += 1
+    return records
 
 
 async def queue_records_for_movie(movie_id: int) -> list[dict[str, Any]]:

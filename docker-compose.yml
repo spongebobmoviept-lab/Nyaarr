@@ -6,7 +6,8 @@ services:
     ports:
       - "8686:8686"
     env_file:
-      - .env
+      - path: .env
+        required: false  # optional; copy .env.example to .env to customise
     volumes:
       - ./data:/data
     healthcheck:

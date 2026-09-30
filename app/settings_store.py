@@ -10,6 +10,8 @@ EDITABLE_KEYS = [
     "default_language_preference",
     "scan_interval_minutes",
     "max_episodes_per_scan",
+    "new_episodes_only_days",
+    "block_opus_audio",
     "auto_grab_high_confidence",
     "movie_min_runtime_minutes",
     "movie_min_vote_count",

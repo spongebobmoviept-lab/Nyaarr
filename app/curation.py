@@ -5,6 +5,7 @@ since the pipeline shape is identical; only the API client differs.
 
 import asyncio
 import datetime
+import re
 from typing import Any, Literal
 
 from . import decisions_store, discord, prefs_store, radarr, sonarr
@@ -13,6 +14,19 @@ from .config import settings
 from .logger import log
 
 Status = Literal["not_aired", "aired_no_release", "needs_review", "downloading", "stalled", "done", "not_yet_checked"]
+
+# Optional hard block (settings.block_opus_audio, off by default). Some
+# playback clients can't handle Opus audio properly (no sound, or a forced
+# bad transcode), so for those setups an Opus release is never worth
+# grabbing even if it's the only option available. Anime release titles
+# reliably carry audio-codec info directly (e.g. "[Opus]", "Opus 2.0"),
+# unlike movie releases.
+_OPUS_AUDIO_PATTERN = re.compile(r"\bopus\b", re.IGNORECASE)
+
+
+def is_opus_release(title: str) -> bool:
+    return bool(_OPUS_AUDIO_PATTERN.search(title or ""))
+
 
 _stop_requested = False
 
@@ -80,10 +94,18 @@ def _pick_ranked_candidates(releases: list, tried_guids: list[str], preference: 
        on other axes. Confirmed live: this happened twice during manual
        Bleach curation before the filter was seeders > 0, not just a sort key.
     2. Never re-offer a guid already tried and abandoned for this item.
-    3. Classify every survivor and filter by the effective sub/dub preference.
-    4. Rank: preferred resolution terms > seeders, descending.
+    3. If block_opus_audio is on, hard-block Opus-audio releases (see
+       _OPUS_AUDIO_PATTERN above).
+    4. Classify every survivor and filter by the effective sub/dub preference.
+    5. Rank: preferred resolution terms > seeders, descending.
     """
-    alive = [r for r in releases if r.seeders >= max(settings.min_seeders, 1) and r.guid not in tried_guids]
+    alive = [
+        r
+        for r in releases
+        if r.seeders >= max(settings.min_seeders, 1)
+        and r.guid not in tried_guids
+        and not (settings.block_opus_audio and is_opus_release(r.title))
+    ]
     if not alive:
         return []
 
@@ -119,7 +141,7 @@ def _pick_ranked_candidates(releases: list, tried_guids: list[str], preference: 
 # ---------------------------------------------------------------------------
 
 
-async def scan_episode(episode: sonarr.SonarrEpisode, series_title: str) -> dict:
+async def scan_episode(episode: sonarr.SonarrEpisode, series_title: str, poster_url: str | None = None) -> dict:
     """The expensive path — a live release search + classify. Called by the
     background scan loop and the explicit per-episode "check now" endpoint
     only; normal dashboard page loads use get_episode_status's cache read
@@ -144,8 +166,18 @@ async def scan_episode(episode: sonarr.SonarrEpisode, series_title: str) -> dict
     else:
         top = candidates[0]
         if settings.auto_grab_high_confidence and top["classification"]["confidence"] == "high":
-            await grab_episode(episode.id, series_title, top["guid"], top["indexer_id"])
             result = {"status": "downloading", "candidates": candidates}
+            # Cache must be written BEFORE grab_episode runs -- it calls
+            # _cached_candidate() to look up this exact guid's title/kind/
+            # confidence for the Discord "Episode Grabbed" post. Writing the
+            # cache after the await (as this used to) meant grab_episode
+            # always read a stale/missing entry, so every notification showed
+            # "(unknown release)" and UNKNOWN confidence no matter what was
+            # actually grabbed.
+            _episode_cache[episode.id] = {**result, "scanned_at": _now_iso()}
+            episode_label = f"S{episode.season_number:02d}E{episode.episode_number:02d}"
+            await grab_episode(episode.id, series_title, top["guid"], top["indexer_id"], episode_label=episode_label, poster_url=poster_url)
+            return result
         else:
             result = {"status": "needs_review", "candidates": candidates}
 
@@ -155,7 +187,23 @@ async def scan_episode(episode: sonarr.SonarrEpisode, series_title: str) -> dict
 
 async def grab_episode(episode_id: int, series_title: str, guid: str, indexer_id: int, episode_label: str = "", poster_url: str | None = None) -> None:
     meta = _cached_candidate(_episode_cache, episode_id, guid)
-    await sonarr.grab_release(guid, indexer_id)
+    try:
+        await sonarr.grab_release(guid, indexer_id)
+    except Exception:
+        # Whatever the cause (most often a duplicate-hash 409 from
+        # qBittorrent because this exact release - or its underlying
+        # torrent - is already sitting in the queue, occasionally a 404
+        # from a stale guid/indexerId pairing), this guid must still be
+        # recorded as tried. If it were only recorded on the success path,
+        # a failed grab would be silently forgotten and the exact same
+        # top-ranked candidate would be re-picked and re-failed on every
+        # subsequent scan cycle, forever. Recording it here lets the next
+        # scan advance to the next-best candidate instead.
+        await decisions_store.store.record_tried_guid("episode", episode_id, guid)
+        await decisions_store.store.record_decision(
+            "episode", episode_id, series_title, "grab_failed", f"grab failed, not retrying guid={guid}"
+        )
+        raise
     await decisions_store.store.record_tried_guid("episode", episode_id, guid)
     await decisions_store.store.record_decision("episode", episode_id, series_title, "grabbed", f"grabbed guid={guid}")
     await log(f"nyaarr: grabbed episode {episode_id} ({series_title})")
@@ -216,8 +264,13 @@ async def scan_movie(movie: radarr.RadarrMovie) -> dict:
     else:
         top = candidates[0]
         if settings.auto_grab_high_confidence and top["classification"]["confidence"] == "high":
-            await grab_movie(movie.id, movie.title, top["guid"], top["indexer_id"])
             result = {"status": "downloading", "candidates": candidates}
+            # Same fix as scan_episode() above: write the cache before
+            # grab_movie runs, since it reads this cache to build the
+            # Discord notification.
+            _movie_cache[movie.id] = {**result, "scanned_at": _now_iso()}
+            await grab_movie(movie.id, movie.title, top["guid"], top["indexer_id"], poster_url=movie.poster_url)
+            return result
         else:
             result = {"status": "needs_review", "candidates": candidates}
 
@@ -227,7 +280,17 @@ async def scan_movie(movie: radarr.RadarrMovie) -> dict:
 
 async def grab_movie(movie_id: int, title: str, guid: str, indexer_id: int, poster_url: str | None = None) -> None:
     meta = _cached_candidate(_movie_cache, movie_id, guid)
-    await radarr.grab_release(guid, indexer_id)
+    try:
+        await radarr.grab_release(guid, indexer_id)
+    except Exception:
+        # Same fix as grab_episode() above, applied here for consistency -
+        # a failed grab must still be recorded as tried so it isn't
+        # re-offered identically forever.
+        await decisions_store.store.record_tried_guid("movie", movie_id, guid)
+        await decisions_store.store.record_decision(
+            "movie", movie_id, title, "grab_failed", f"grab failed, not retrying guid={guid}"
+        )
+        raise
     await decisions_store.store.record_tried_guid("movie", movie_id, guid)
     await decisions_store.store.record_decision("movie", movie_id, title, "grabbed", f"grabbed guid={guid}")
     await log(f"nyaarr: grabbed movie {movie_id} ({title})")
@@ -275,6 +338,16 @@ def _needs_fresh_scan(episode_id: int) -> bool:
     return age_minutes >= settings.scan_interval_minutes
 
 
+def _within_new_episode_window(days_since_aired: float | None) -> bool:
+    """new_episodes_only_days > 0 limits scanning to episodes that aired
+    within that many days; 0 (or less) means no limit, i.e. the whole
+    missing backlog is eligible."""
+    limit = settings.new_episodes_only_days
+    if not limit or limit <= 0:
+        return True
+    return days_since_aired is not None and days_since_aired <= limit
+
+
 async def run_full_scan() -> dict[str, Any]:
     """One pass over anime series' missing+aired episodes. Read-only for
     classification/status; only grabs if auto_grab_high_confidence is on
@@ -284,32 +357,62 @@ async def run_full_scan() -> dict[str, Any]:
     within the last scan_interval_minutes — across a library with hundreds
     of anime series (confirmed live: 500 in this case), "search every
     missing episode every cycle" would make each cycle take hours and
-    hammer indexers for no benefit on entries that haven't changed. A show
-    with many gaps gets covered incrementally across several cycles rather
-    than all at once.
+    hammer indexers for no benefit on entries that haven't changed.
+
+    Work goes newest-air-date-first, not series-list order. Every series'
+    missing/aired episodes (within new_episodes_only_days, when that is
+    above 0) are pooled into one flat list, sorted by
+    days_since_aired ascending (most recently aired first), then the
+    per-scan budget is applied to that globally-sorted list — so a cycle
+    always spends its budget on the newest gaps across the whole library
+    before ever touching older ones, and a show with many gaps still gets
+    covered incrementally across several cycles rather than all at once.
     """
     tag_labels = await sonarr.list_tags()
     all_series = await sonarr.list_series()
     anime_series = [s for s in all_series if sonarr.is_anime_series(s, tag_labels)]
 
     results = {"series_scanned": len(anime_series), "episodes": [], "skipped_fresh": 0, "hit_cap": False}
-    budget = settings.max_episodes_per_scan
+
+    candidates: list[tuple[Any, Any]] = []  # (series, episode) pairs, pooled across all series
     for series in anime_series:
+        episodes = await sonarr.list_episodes(series.id)
+        missing = [
+            e
+            for e in episodes
+            if not e.has_file
+            and e.monitored
+            and e.has_aired
+            and _within_new_episode_window(e.days_since_aired)
+        ]
+        candidates.extend((series, e) for e in missing)
+
+    # Ascending = most recently aired first; unknown air dates sort last.
+    candidates.sort(key=lambda pair: pair[1].days_since_aired if pair[1].days_since_aired is not None else float("inf"))
+
+    budget = settings.max_episodes_per_scan
+    for series, ep in candidates:
         if budget <= 0:
             results["hit_cap"] = True
             break
-        episodes = await sonarr.list_episodes(series.id)
-        missing = [e for e in episodes if not e.has_file and e.monitored and e.has_aired]
-        for ep in missing:
-            if budget <= 0:
-                results["hit_cap"] = True
-                break
-            if not _needs_fresh_scan(ep.id):
-                results["skipped_fresh"] += 1
-                continue
-            outcome = await scan_episode(ep, series.title)
-            results["episodes"].append({"series": series.title, "episode": f"S{ep.season_number:02d}E{ep.episode_number:02d}", **outcome})
+        if not _needs_fresh_scan(ep.id):
+            results["skipped_fresh"] += 1
+            continue
+        try:
+            outcome = await scan_episode(ep, series.title, poster_url=series.poster_url)
+        except Exception as exc:  # noqa: BLE001
+            # One episode's search/grab blowing up (a transient Sonarr 500,
+            # a flaky indexer, etc.) must not sacrifice the rest of this
+            # cycle's budget - without this, a single mid-cycle grab
+            # failure (e.g. a Sonarr /release 500) would kill every
+            # remaining episode's worth of budget outright. Log and move on
+            # to the next candidate instead.
+            await log(f"nyaarr: scan_episode failed for {series.title} S{ep.season_number:02d}E{ep.episode_number:02d}: {exc} - skipping, continuing scan")
+            results["episodes"].append({"series": series.title, "episode": f"S{ep.season_number:02d}E{ep.episode_number:02d}", "status": "error", "candidates": [], "error": str(exc)})
             budget -= 1
+            continue
+        results["episodes"].append({"series": series.title, "episode": f"S{ep.season_number:02d}E{ep.episode_number:02d}", **outcome})
+        budget -= 1
     return results
 
 

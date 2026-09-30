@@ -530,6 +530,7 @@ h3:first-of-type { margin-top: 0; }
 .lang-badge.sub, .lang-badge.dual { border-color: var(--gold-dim); color: var(--gold); }
 .lang-badge.dub { border-color: #6c8ecb; color: #6c8ecb; }
 .lang-badge.unknown { border-color: #6b6b6b; color: #6b6b6b; }
+.lang-badge.foreign_sub { border-color: #b36b6b; color: #c98080; }
 
 .movie-candidate-grid {
   display: grid;

@@ -70,6 +70,18 @@ class Settings:
         # than the scan interval) are skipped rather than re-searched.
         self.max_episodes_per_scan = _env_int("MAX_EPISODES_PER_SCAN", 50)
 
+        # Only scan episodes that aired within the last N days, so a large
+        # library's existing backlog of older missing/monitored episodes is
+        # left alone entirely (not even searched). A few days of slack
+        # covers a scan loop that was down or a delayed release. Set to 0
+        # to scan the whole missing backlog instead.
+        self.new_episodes_only_days = _env_int("NEW_EPISODES_ONLY_DAYS", 7)
+
+        # Hard-block releases whose title marks Opus audio. Off by default;
+        # turn it on if one of your playback clients can't play Opus (no
+        # sound, or a forced bad transcode).
+        self.block_opus_audio = _env_bool("BLOCK_OPUS_AUDIO", False)
+
         # Phase 6 — off by default. Even when true, UNKNOWN-confidence
         # releases are never auto-grabbed, only HIGH-confidence ones.
         self.auto_grab_high_confidence = _env_bool("AUTO_GRAB_HIGH_CONFIDENCE", False)

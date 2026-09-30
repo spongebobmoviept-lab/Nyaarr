@@ -33,7 +33,7 @@ async def lifespan(_: FastAPI):
         task.cancel()
 
 
-app = FastAPI(title="Nyaarr", lifespan=lifespan)
+app = FastAPI(title="Nyaarr", version="1.1.0", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -229,7 +229,9 @@ async def api_check_episode(episode_id: int, body: dict, _: str = Depends(requir
     episode = next((e for e in episodes if e.id == episode_id), None)
     if episode is None:
         raise HTTPException(status_code=404, detail="Episode not found")
-    outcome = await curation.scan_episode(episode, series_title)
+    series = await sonarr.get_series(series_id)
+    poster_url = series.poster_url if series else None
+    outcome = await curation.scan_episode(episode, series_title, poster_url=poster_url)
     return JSONResponse(outcome)
 
 

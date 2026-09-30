@@ -11,7 +11,7 @@ PURPLE = 0x9B7ED9
 
 AUTHOR = {"name": "Nyaarr"}
 
-_KIND_LABEL = {"sub": "\U0001f4ac Sub", "dub": "\U0001f3a4 Dub", "dual": "\U0001f310 Dual-Audio", "unknown": "❓ Unknown"}
+_KIND_LABEL = {"sub": "\U0001f4ac Sub", "dub": "\U0001f3a4 Dub", "dual": "\U0001f310 Dual-Audio", "foreign_sub": "🌍 Non-English Subs", "unknown": "❓ Unknown"}
 _CONFIDENCE_LABEL = {"high": "HIGH confidence", "medium": "MEDIUM confidence", "unknown": "UNKNOWN confidence"}
 
 

@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+# Pinned to a specific patch release for reproducible builds; bump deliberately.
+FROM python:3.12.14-slim-trixie
 
 RUN useradd --create-home --uid 1000 nyaarr
 WORKDIR /app

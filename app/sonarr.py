@@ -11,7 +11,7 @@ from .logger import with_retry
 def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=f"{settings.sonarr_url}/api/v3",
-        timeout=30,
+        timeout=120,
         headers={"X-Api-Key": settings.sonarr_api_key},
     )
 
@@ -51,7 +51,11 @@ class SonarrSeries:
 def _poster_from_raw(raw: dict) -> Optional[str]:
     for image in raw.get("images", []):
         if image.get("coverType") == "poster":
-            return image.get("remoteUrl") or image.get("url")
+            # Only absolute http(s) URLs are usable in a Discord embed; the
+            # relative /MediaCover path would make the whole webhook post fail.
+            for candidate in (image.get("remoteUrl"), image.get("url")):
+                if isinstance(candidate, str) and candidate.startswith(("http://", "https://")):
+                    return candidate
     return None
 
 
@@ -72,6 +76,13 @@ class SonarrEpisode:
             return False
         aired = datetime.datetime.fromisoformat(self.air_date_utc.replace("Z", "+00:00"))
         return aired <= datetime.datetime.now(datetime.timezone.utc)
+
+    @property
+    def days_since_aired(self) -> Optional[float]:
+        if not self.air_date_utc:
+            return None
+        aired = datetime.datetime.fromisoformat(self.air_date_utc.replace("Z", "+00:00"))
+        return (datetime.datetime.now(datetime.timezone.utc) - aired).total_seconds() / 86400
 
 
 @dataclass
@@ -203,10 +214,33 @@ async def grab_release(guid: str, indexer_id: int) -> None:
 
 @with_retry(label="Sonarr: get queue")
 async def get_queue() -> list[dict[str, Any]]:
+    """Paginates through Sonarr's ENTIRE queue rather than assuming it fits
+    in one page. A long-lived library's queue can grow to thousands of
+    records (stuck/dead-swarm downloads that nothing cleans up); a flat
+    pageSize of 200 meant queue_records_for_episode() below silently saw
+    only the first 200 rows, so dedupe_episode_queue()'s duplicate-removal
+    safety net could never see a duplicate entry sitting past position
+    200. Those duplicates then piled up unchecked, and every fresh grab
+    attempt for that episode collided with an already-queued copy (a
+    409 from the download client / 500 from Sonarr) on every scan cycle.
+    """
+    records: list[dict[str, Any]] = []
+    page = 1
+    page_size = 250
     async with _client() as client:
-        resp = await client.get("/queue", params={"pageSize": 200, "includeEpisode": True})
-        resp.raise_for_status()
-        return resp.json().get("records", [])
+        while True:
+            resp = await client.get(
+                "/queue", params={"page": page, "pageSize": page_size, "includeEpisode": True}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            batch = data.get("records", [])
+            records.extend(batch)
+            total = data.get("totalRecords", len(records))
+            if len(records) >= total or not batch:
+                break
+            page += 1
+    return records
 
 
 async def queue_records_for_episode(episode_id: int) -> list[dict[str, Any]]:

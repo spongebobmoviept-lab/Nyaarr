@@ -2,6 +2,12 @@ const state = { series: [], activeSeriesId: null, activeSeriesTitle: null };
 
 function $(sel) { return document.querySelector(sel); }
 
+// Release titles, TMDB titles and log details come from third parties
+// (indexers, TMDB); escape everything interpolated into innerHTML.
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
 async function api(path, { method = "GET", body } = {}) {
   const headers = { "Content-Type": "application/json" };
   const res = await fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
@@ -38,7 +44,7 @@ async function loadSeries() {
   try {
     state.series = await api("/api/series");
   } catch (e) {
-    list.innerHTML = `<p class="muted">Couldn't load series: ${e.message}</p>`;
+    list.innerHTML = `<p class="muted">Couldn't load series: ${esc(e.message)}</p>`;
     return;
   }
   list.innerHTML = "";
@@ -50,8 +56,8 @@ async function loadSeries() {
     const row = document.createElement("div");
     row.className = "series-row";
     row.innerHTML = `
-      <span class="series-title">${s.title}</span>
-      <span class="series-pref-badge ${s.preference}">${s.preference.replace("_", " ")}</span>
+      <span class="series-title">${esc(s.title)}</span>
+      <span class="series-pref-badge ${esc(s.preference)}">${esc(s.preference.replace("_", " "))}</span>
     `;
     row.addEventListener("click", () => openSeries(s.id, s.title, s.preference));
     list.appendChild(row);
@@ -103,7 +109,7 @@ async function loadEpisodes() {
   try {
     episodes = await api(`/api/series/${state.activeSeriesId}/episodes`);
   } catch (e) {
-    body.innerHTML = `<tr><td colspan="4" class="muted">Couldn't load episodes: ${e.message}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="4" class="muted">Couldn't load episodes: ${esc(e.message)}</td></tr>`;
     return;
   }
   body.innerHTML = "";
@@ -134,7 +140,7 @@ async function loadEpisodes() {
     }
     tr.innerHTML = `
       <td>S${String(ep.season).padStart(2, "0")}E${String(ep.episode).padStart(2, "0")}</td>
-      <td>${ep.title || ""}</td>
+      <td>${esc(ep.title)}</td>
       <td>${airDate}</td>
     `;
     tr.appendChild(statusCell);
@@ -164,8 +170,8 @@ function renderCandidateList(candidates, onGrab) {
     const cls = c.classification;
     card.innerHTML = `
       <div class="candidate-main">
-        <div class="candidate-title"><span class="lang-badge ${cls.kind}">${cls.kind}</span>${c.title}</div>
-        <div class="candidate-meta">${c.seeders} seeders · ${c.size_gb} GB · ${cls.reason}</div>
+        <div class="candidate-title"><span class="lang-badge ${esc(cls.kind)}">${esc(cls.kind.replace("_", " "))}</span>${esc(c.title)}</div>
+        <div class="candidate-meta">${esc(c.seeders)} seeders · ${esc(c.size_gb)} GB · ${esc(cls.reason)}</div>
       </div>
     `;
     const btn = document.createElement("button");
@@ -192,11 +198,11 @@ $("#find-movies-btn").addEventListener("click", async () => {
   try {
     candidates = await api(`/api/series/${state.activeSeriesId}/find-movies`, { method: "POST" });
   } catch (e) {
-    panel.innerHTML = `<p class="muted">${e.message}</p>`;
+    panel.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
     return;
   }
   if (!candidates.length) {
-    panel.innerHTML = `<p class="muted">No plausible movie matches found for "${state.activeSeriesTitle}".</p>`;
+    panel.innerHTML = `<p class="muted">No plausible movie matches found for "${esc(state.activeSeriesTitle)}".</p>`;
     return;
   }
   panel.innerHTML = `<h3 style="margin-top:0.5rem;">Related Movies Found — confirm before adding</h3>`;
@@ -206,10 +212,10 @@ $("#find-movies-btn").addEventListener("click", async () => {
     const card = document.createElement("div");
     card.className = "movie-candidate-card";
     card.innerHTML = `
-      ${c.poster_url ? `<img src="${c.poster_url}" alt="">` : ""}
+      ${c.poster_url ? `<img src="${esc(c.poster_url)}" alt="">` : ""}
       <div class="movie-candidate-body">
-        <div class="movie-candidate-title">${c.title} (${c.year})</div>
-        <div class="movie-candidate-meta">${c.runtime_minutes} min · ${c.vote_count} votes</div>
+        <div class="movie-candidate-title">${esc(c.title)} (${esc(c.year)})</div>
+        <div class="movie-candidate-meta">${esc(c.runtime_minutes)} min · ${esc(c.vote_count)} votes</div>
       </div>
     `;
     const btn = document.createElement("button");
@@ -247,7 +253,7 @@ async function loadMovies() {
   try {
     movies = await api("/api/movies");
   } catch (e) {
-    list.innerHTML = `<p class="muted">Couldn't load movies: ${e.message}</p>`;
+    list.innerHTML = `<p class="muted">Couldn't load movies: ${esc(e.message)}</p>`;
     return;
   }
   list.innerHTML = "";
@@ -261,7 +267,7 @@ async function loadMovies() {
     row.innerHTML = `
       <div></div>
       <div class="queue-main">
-        <div class="queue-title-row"><span class="queue-title">${m.title}</span><span class="ep-status ${m.status}">${m.status.replace(/_/g, " ")}</span></div>
+        <div class="queue-title-row"><span class="queue-title">${esc(m.title)}</span><span class="ep-status ${esc(m.status)}">${esc(m.status.replace(/_/g, " "))}</span></div>
       </div>
       <div class="queue-actions"></div>
     `;
@@ -305,8 +311,8 @@ async function loadHistory() {
     row.innerHTML = `
       <div></div>
       <div class="queue-main">
-        <div class="queue-title-row"><span class="queue-title">${h.title}</span><span class="outcome-badge ${h.outcome === 'grabbed' ? 'done' : ''}">${h.outcome.replace(/_/g, " ")}</span></div>
-        <div class="queue-detail">${h.detail}</div>
+        <div class="queue-title-row"><span class="queue-title">${esc(h.title)}</span><span class="outcome-badge ${h.outcome === 'grabbed' ? 'done' : ''}">${esc(h.outcome.replace(/_/g, " "))}</span></div>
+        <div class="queue-detail">${esc(h.detail)}</div>
       </div>
       <div class="queue-detail">${new Date(h.at).toLocaleString()}</div>
     `;
@@ -365,6 +371,8 @@ const SETTINGS_LABELS = {
   default_language_preference: "Default preference (prefer_sub / prefer_dub / no_preference)",
   scan_interval_minutes: "Background scan interval (minutes)",
   max_episodes_per_scan: "Max episodes searched per scan cycle (paces indexer load on large libraries)",
+  new_episodes_only_days: "Only scan episodes that aired within this many days (0 = whole missing backlog)",
+  block_opus_audio: "Block Opus-audio releases (for players that can't play Opus)",
   auto_grab_high_confidence: "Auto-grab HIGH-confidence matches (off = always manual review)",
   movie_min_runtime_minutes: "Movie discovery: minimum runtime (minutes)",
   movie_min_vote_count: "Movie discovery: minimum TMDB vote count",
@@ -422,7 +430,7 @@ $("#settings-save").addEventListener("click", async () => {
   form.querySelectorAll("input").forEach((input) => {
     if (input.type === "checkbox") { update[input.name] = input.checked; return; }
     if (input.name === "known_fansub_groups") { update[input.name] = input.value.split(",").map((s) => s.trim()).filter(Boolean); return; }
-    if (["min_seeders", "scan_interval_minutes", "max_episodes_per_scan", "movie_min_runtime_minutes", "movie_min_vote_count", "default_movie_quality_profile_id"].includes(input.name)) {
+    if (["min_seeders", "scan_interval_minutes", "max_episodes_per_scan", "new_episodes_only_days", "movie_min_runtime_minutes", "movie_min_vote_count", "default_movie_quality_profile_id"].includes(input.name)) {
       update[input.name] = Number(input.value);
       return;
     }
