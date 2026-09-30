@@ -43,13 +43,18 @@ flowchart LR
 
 **You'll need:** Docker + Docker Compose, a running Sonarr instance, and a running Radarr instance you have admin access to.
 
+No need to clone or build anything: a ready-made image is published for amd64 and arm64 (Raspberry Pi 4/5 on a 64-bit OS).
+
 ```bash
-git clone https://github.com/spongebobmoviept-lab/Nyaarr.git
-cd Nyaarr
+mkdir nyaarr && cd nyaarr
+curl -fsSLO https://raw.githubusercontent.com/spongebobmoviept-lab/Nyaarr/main/docker-compose.yml
+curl -fsSL -o .env.example https://raw.githubusercontent.com/spongebobmoviept-lab/Nyaarr/main/.env.example
 cp .env.example .env                        # optional overrides; the defaults work as-is
 mkdir -p data && sudo chown 1000:1000 data  # container runs as a non-root user; a freshly-created bind mount defaults to root
-docker compose up -d
+docker compose up -d                        # pulls ghcr.io/spongebobmoviept-lab/nyaarr
 ```
+
+To build from source instead, clone the repo, uncomment `build:` in `docker-compose.yml`, and run `docker compose up -d --build`.
 
 Open `http://<this-machine's-ip>:8686` and follow the setup wizard:
 
